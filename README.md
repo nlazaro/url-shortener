@@ -1,0 +1,3 @@
+- Tech Stack: Java 21, Spring Boot 3, Maven, JUnit 5.
+- Key Features: Base62 encoding logic, H2/PostgreSQL persistence, Redis caching.
+- How to Run: `mvn spring-boot:run`
