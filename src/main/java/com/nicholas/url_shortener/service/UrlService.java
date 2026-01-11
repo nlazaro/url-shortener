@@ -3,6 +3,7 @@ package com.nicholas.url_shortener.service;
 import com.nicholas.url_shortener.exception.UrlNotFoundException;
 import com.nicholas.url_shortener.model.UrlEntity;
 import com.nicholas.url_shortener.repository.UrlRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -48,7 +49,9 @@ public class UrlService{
         return encode(entity.getId());
     }
 
+    @Cacheable(value = "urls", key = "#shortCode")
     public String getFullUrl(String shortCode) {
+        System.out.println("Cache miss, fetching from database for: " + shortCode);
         long id = decode(shortCode);
         return repository.findById(id)
                 .map(UrlEntity::getFullUrl)
