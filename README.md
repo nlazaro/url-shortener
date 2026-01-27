@@ -1,6 +1,6 @@
 # 🔗 Professional URL Shortener
 
-A high-performance URL shortening service built with **Spring Boot 3.4**, **PostgreSQL**, and **Redis**.
+A high-performance URL shortening service built with **Spring Boot 4.0.3**, **PostgreSQL**, and **Redis**.
 
 ## Features
 * **Randomized Short Codes:** Uses `SecureRandom` to generate unpredictable 7-character strings (e.g., `aB9x2kL`).
@@ -11,7 +11,7 @@ A high-performance URL shortening service built with **Spring Boot 3.4**, **Post
 
 ## Tech Stack
 * **Java 24** (Corretto)
-* **Spring Boot 4.0** (Web, Data JPA, Data Redis)
+* **Spring Boot 4.0.3** (Web, Data JPA, Data Redis)
 * **PostgreSQL** (Primary Database)
 * **Redis** (Caching Layer)
 * **Lombok** (Boilerplate reduction)
