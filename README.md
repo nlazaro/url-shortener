@@ -36,7 +36,7 @@ The application follows a standard N-Tier architecture:
 ### Installation
 1. Clone the repo:
    ```bash
-   git clone [https://github.com/nlazaro/url-shortener.git](https://github.com/nlazaro/url-shortener.git)
+   git clone https://github.com/nlazaro/url-shortener.git
    ```
 2. Build & run the project:
 ```bash
