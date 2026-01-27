@@ -37,19 +37,25 @@ The application follows a standard N-Tier architecture:
 1. Clone the repo:
    ```bash
    git clone https://github.com/nlazaro/url-shortener.git
+   cd url-shortener
    ```
 2. Run Docker 
    ```bash
    docker compose up
    ```
+3. Shutting down docker
+   ```bash
+   docker compose down
+   ```
+   
+## Usage
+Once the containers are running, you can access the application at:
+* **User Interface:** [http://localhost:8080](http://localhost:8080) — The main dashboard to shorten your URLs.
+* **API Documentation (Swagger):** [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) — Explore and test the REST endpoints directly.
+
 ## API Endpoints
 - `POST /shorten` Takes a JSON body and returns a 7 char code
 - `GET /r/{code}` Redirects the user to the original URL
-
-## Testing
-```bash
-./mvnw test
-```
 
 ## Example
 `![Project Example](assets/example.gif)`
