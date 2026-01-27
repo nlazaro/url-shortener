@@ -58,4 +58,5 @@ Once the containers are running, you can access the application at:
 - `GET /r/{code}` Redirects the user to the original URL
 
 ## Example
-`![Project Example](assets/example.gif)`
+<img src='assets/example.gif' width='' alt='Video Demo' />
+
