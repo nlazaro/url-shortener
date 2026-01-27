@@ -24,9 +24,7 @@ public class UrlService {
 
     public String shortenURL(String longUrl) {
         String code = generateRandomCode();
-        UrlEntity entity = new UrlEntity();
-        entity.setFullUrl(longUrl);
-        entity.setShortCode(code);
+        UrlEntity entity = new UrlEntity(longUrl, code);
         repository.save(entity);
         redisTemplate.opsForValue().set(code, longUrl, 1, TimeUnit.DAYS);
         return code;

@@ -1,29 +1,35 @@
 package com.nicholas.url_shortener.model;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 @Entity // tells jpa this class is a database table
 @Table(name = "urls")
-@Data // Lombok: generates getters, setters, and toString automatically
-
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UrlEntity {
-    @Id //primary key
+    @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY) // auto increment
     private Long id;
+
+    @Column(nullable = false)
+    private String fullUrl;
 
     @Column(nullable = false, unique = true)
     private String shortCode;
 
-    @Column(nullable = false)
-    private String fullUrl;
     private LocalDateTime CreatedAt;
 
-    // set the data automatically before saving to the database
-    @PrePersist
-    protected void onCreate() {
-        CreatedAt = LocalDateTime.now();
+    public UrlEntity(String fullUrl, String shortCode) {
+        if (fullUrl == null || shortCode == null) {
+            throw new IllegalArgumentException();
+        }
+        this.fullUrl = fullUrl;
+        this.shortCode = shortCode;
+        this.CreatedAt = LocalDateTime.now();
     }
 }
