@@ -39,22 +39,22 @@ The application follows a standard N-Tier architecture:
    git clone https://github.com/nlazaro/url-shortener.git
    ```
 2. Build the jar
-```bash
-./mvnw clean package -DskipTests
-```
+   ```bash
+   ./mvnw clean package -DskipTests
+   ```
 3. Run docker
-```bash
-docker compose up
-```
+   ```bash
+   docker compose up
+   ```
 
 ## API Endpoints
 - `POST /shorten` Takes a JSON body and returns a 7 char code
 - `GET /r/{code}` Redirects the user to the original URL
 
 ## Testing
-```bash
-./mvnw test
-```
+   ```bash
+   ./mvnw test
+   ```
 
 ## Example
 `![Project Example](assets/example.gif)`
