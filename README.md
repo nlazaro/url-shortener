@@ -1,54 +1,57 @@
-# High performance URL shortener
-A containerized REST API built wiht **Spring Boot**, **Redis**, and **PostgreSQL (H2 for dev) that converts long URLs into compapct 6 character aliases using Base62 encoding
+# 🔗 Professional URL Shortener
+
+A high-performance URL shortening service built with **Spring Boot 3.4**, **PostgreSQL**, and **Redis**.
 
 ## Features
-- Base62 Encoding: Custom algorithm to map database IDs to short, URL safe strings
-- High performance caching: Integreated Redis to reduce databse read latency for frequently accessed URLs
-- Global Exception Handling: Clean, standardized JSON error responses for invalid or missing URLs
-- Containerized Architecture: Fulled dockerized for seamless deployment and enviornment parity
-- In memory H2 Console: Integreated databse management interface for real time data inspection
+* **Randomized Short Codes:** Uses `SecureRandom` to generate unpredictable 7-character strings (e.g., `aB9x2kL`).
+* **High Performance:** Dual-layer storage using **Redis** for sub-millisecond redirects and **PostgreSQL** for permanent persistence.
+* **Simple UI:** Clean, responsive frontend for "Average Joe" to easily shorten links.
+* **Developer Friendly:** Fully documented API via **Swagger/OpenAPI**.
+* **Tested:** Robust test suite covering Unit logic and Integration flows.
 
 ## Tech Stack
-- Language: Java 24 (Amazon Corretto)
-- Framework: Spring Boot 4.0.1
-- Database: H2 (In-Memory) / PostgreSQL
-- Cache: Redis
-- DevOps: Docker, Docker Compose
-- Testing: JUnit 5, Mockito
+* **Java 24** (Corretto)
+* **Spring Boot 4.0** (Web, Data JPA, Data Redis)
+* **PostgreSQL** (Primary Database)
+* **Redis** (Caching Layer)
+* **Lombok** (Boilerplate reduction)
+* **JUnit 5 & Mockito** (Testing)
+---
+
+## Architecture
+The application follows a standard N-Tier architecture:
+1. **Controller Layer:** Handles REST requests and UI serving.
+2. **Service Layer:** Manages random string generation and cache-aside logic.
+3. **Repository Layer:** Interacts with PostgreSQL.
+4. **Cache Layer:** Interacts with Redis for high-speed lookups.
+---
 
 ## Getting Started
-1. Clone the repository:
-```
-git clone https://github.com/nlazaro/url-shortener.git
-cd url-shortener
-```
-2. Spin up the enviornment:
-```
-docker compose up --build
+
+### Prerequisites
+* Docker (for Redis/Postgres) or local installations.
+* JDK 24.
+* Maven.
+
+### Installation
+1. Clone the repo:
+   ```bash
+   git clone [https://github.com/yourusername/url-shortener.git](https://github.com/yourusername/url-shortener.git)
+   ```
+2. Build & run the project:
+```bash
+./mvnw clean install
+./mvnw spring-boot:run
 ```
 
-## API Documentation
-1. Shorten a URL
-`POST /shorten`
-- Request Body:
-  ```
-  {
-  "url": "https://www.youtube.com"
-  }
-  ```
-- Response: `201 Created`
-  - Returns the short code (e.g., `b`)
+## API Endpoints
+- `POST /shorten` Takes a JSON body and returns a 7 char code
+- `GET /r/{code}` Redirects the user to the original URL
 
- 2. Redirect to Original URL
-`GET /{shortCode}`
-- Redirects the client to the original long URL with a `302 Found` status
+## Testing
+```bash
+./mvnw test
+```
 
-3. Database Inspection
-Access the H2 Console at `http://localhost:8080/h2-console`
-- JDBC URL `jdbc:h2:mem:urldb`
-- User `sa`
-- Password password`
-
- ## System Architecture
- 1. **Write Path**: When a URL is shortened, it is saved to the database. The auto incremented ID is then encoded into Base62
- 2. **Read Path**: The system follows a Cache-Aside Pattern. It checks Redis for the short code; if not found (cache miss), it queries the database and populates the cache for subsequent requests.
+## Example
+`![Project Example](assets/example.gif)`
