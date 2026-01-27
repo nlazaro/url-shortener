@@ -38,15 +38,13 @@ The application follows a standard N-Tier architecture:
    ```bash
    git clone https://github.com/nlazaro/url-shortener.git
    ```
-2. Run Docker prerequisites
+2. Build the jar
 ```bash
-docker run --name shortener-db -e POSTGRES_PASSWORD=password -e POSTGRES_DB=shortener_db -p 5432:5432 -d postgres
-docker run --name shortener-redis -p 6379:6379 -d redis:alpine
+./mvnw clean package -DskipTests
 ```
-3. Build & run the project:
+3. Run docker
 ```bash
-./mvnw clean install
-./mvnw spring-boot:run
+docker compose up
 ```
 
 ## API Endpoints
