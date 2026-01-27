@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>URL Shortener</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f4f7f6; }
+        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        #result { margin-top: 20px; padding: 10px; background: #e9ecef; border-radius: 4px; word-break: break-all; display: none; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h2>Shorten a Link</h2>
+    <input type="text" id="urlInput" placeholder="Paste your long URL here...">
+    <button onclick="shorten()">Shorten It!</button>
+    <div id="result">
+        Your link: <a id="shortLink" href="" target="_blank"></a>
+    </div>
+</div>
+
+<script>
+    async function shorten() {
+        const urlInput = document.getElementById('urlInput');
+        const resultDiv = document.getElementById('result');
+        const linkTag = document.getElementById('shortLink');
+        const btn = document.querySelector('button');
+
+        // 1. Basic validation
+        if (!urlInput.value) {
+            alert("Please paste a URL first!");
+            return;
+        }
+
+        // UI Feedback: Disable button while loading
+        btn.innerText = "Shortening...";
+        btn.disabled = true;
+
+        try {
+            // 2. Make the API call to your Spring Boot backend
+            const response = await fetch('/shorten', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: urlInput.value })
+            });
+
+            if (response.ok) {
+                const shortCode = await response.text();
+
+                // 3. Construct the full clickable link
+                const fullShortUrl = `${window.location.origin}/r/${shortCode}`;
+
+                // 4. Update the UI
+                linkTag.href = fullShortUrl;
+                linkTag.innerText = fullShortUrl;
+                resultDiv.style.display = 'block';
+            } else {
+                alert("Error: " + await response.text());
+            }
+        } catch (error) {
+            console.error("Fetch error:", error);
+            alert("Could not connect to the server.");
+        } finally {
+            btn.innerText = "Shorten It!";
+            btn.disabled = false;
+        }
+    }
+</script>
+</body>
+</html>

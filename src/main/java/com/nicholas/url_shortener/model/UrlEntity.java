@@ -2,6 +2,7 @@ package com.nicholas.url_shortener.model;
 
 import jakarta.persistence.*;
 import lombok.Data;
+
 import java.time.LocalDateTime;
 
 @Entity // tells jpa this class is a database table
@@ -12,6 +13,9 @@ public class UrlEntity {
     @Id //primary key
     @GeneratedValue(strategy = GenerationType.IDENTITY) // auto increment
     private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String shortCode;
 
     @Column(nullable = false)
     private String fullUrl;
