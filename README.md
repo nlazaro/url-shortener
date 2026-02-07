@@ -1,4 +1,4 @@
-# 🔗 Professional URL Shortener
+# URL Shortener
 
 A high-performance URL shortening service built with **Spring Boot 4.0.3**, **PostgreSQL**, and **Redis**.
 
@@ -10,12 +10,7 @@ A high-performance URL shortening service built with **Spring Boot 4.0.3**, **Po
 * **Tested:** Robust test suite covering Unit logic and Integration flows.
 
 ## Tech Stack
-* **Java 24** (Corretto)
-* **Spring Boot 4.0.3** (Web, Data JPA, Data Redis)
-* **PostgreSQL** (Primary Database)
-* **Redis** (Caching Layer)
-* **Lombok** (Boilerplate reduction)
-* **JUnit 5 & Mockito** (Testing)
+* **Java 24** (Corretto), **Spring Boot 4.0.3** (Web, Data JPA, Data Redis), **PostgreSQL** (Primary Database), **Redis** (Caching Layer), **Lombok** (Boilerplate reduction), **JUnit 5 & Mockito** (Testing)
 ---
 
 ## Architecture
@@ -60,3 +55,6 @@ Once the containers are running, you can access the application at:
 ## Example
 <img src='assets/example.gif' width='' alt='Video Demo' />
 
+# Future 
+- Add authentitication / authorization
+- Add statistics tracker
