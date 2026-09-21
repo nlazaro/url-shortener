@@ -3,7 +3,7 @@ package com.nicholas.url_shortener.service;
 import com.nicholas.url_shortener.exception.UrlNotFoundException;
 import com.nicholas.url_shortener.model.UrlEntity;
 import com.nicholas.url_shortener.repository.UrlRepository;
-import org.springframework.cache.annotation.Cacheable;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -12,9 +12,13 @@ import java.util.concurrent.TimeUnit;
 
 @Service
 public class UrlService {
+    static final int CODE_LENGTH = 7;
+    static final int MAX_ATTEMPTS = 5;
+    private static final long CACHE_TTL_DAYS = 1;
+    private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
     private final UrlRepository repository;
     private final RedisTemplate<Object, Object> redisTemplate;
-    private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private final SecureRandom random = new SecureRandom();
 
     public UrlService(UrlRepository repository, RedisTemplate<Object, Object> redisTemplate) {
@@ -22,26 +26,47 @@ public class UrlService {
         this.redisTemplate = redisTemplate;
     }
 
+    /**
+     * Generates a random short code and persists it. The unique constraint on shortCode is the
+     * source of truth for collisions: on a violation we retry with a new code, up to MAX_ATTEMPTS.
+     */
     public String shortenURL(String longUrl) {
-        String code = generateRandomCode();
-        UrlEntity entity = new UrlEntity(longUrl, code);
-        repository.save(entity);
-        redisTemplate.opsForValue().set(code, longUrl, 1, TimeUnit.DAYS);
-        return code;
+        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            String code = generateRandomCode();
+            try {
+                // saveAndFlush forces the INSERT now, so a collision surfaces inside this try block
+                repository.saveAndFlush(new UrlEntity(longUrl, code));
+            } catch (DataIntegrityViolationException e) {
+                continue; // short code already taken, try another
+            }
+            redisTemplate.opsForValue().set(code, longUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
+            return code;
+        }
+        throw new IllegalStateException("Could not generate a unique short code after " + MAX_ATTEMPTS + " attempts");
+    }
+
+    /**
+     * Cache-aside lookup: check Redis first, fall back to Postgres on a miss, then populate the cache.
+     */
+    public String getFullUrl(String shortCode) {
+        Object cached = redisTemplate.opsForValue().get(shortCode);
+        if (cached != null) {
+            return cached.toString();
+        }
+
+        String fullUrl = repository.findByShortCode(shortCode)
+                .map(UrlEntity::getFullUrl)
+                .orElseThrow(() -> new UrlNotFoundException("Short code '" + shortCode + "' does not exist"));
+
+        redisTemplate.opsForValue().set(shortCode, fullUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
+        return fullUrl;
     }
 
     private String generateRandomCode() {
-        StringBuilder sb = new StringBuilder(7);
-        for (int i = 0; i < 7; i++) {
+        StringBuilder sb = new StringBuilder(CODE_LENGTH);
+        for (int i = 0; i < CODE_LENGTH; i++) {
             sb.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
         }
         return sb.toString();
-    }
-
-    @Cacheable(value = "urls", key = "#shortCode")
-    public String getFullUrl(String shortCode) {
-        return repository.findByShortCode(shortCode)
-                .map(UrlEntity::getFullUrl)
-                .orElseThrow(() -> new UrlNotFoundException("Short code '" + shortCode + "' does not exist"));
     }
 }

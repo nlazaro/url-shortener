@@ -28,11 +28,8 @@ public class UrlController {
 
     @GetMapping("/r/{shortCode}")
     public ResponseEntity<Void> redirect(@PathVariable String shortCode) {
+        // getFullUrl throws UrlNotFoundException for unknown codes, which GlobalExceptionHandler maps to 404
         String longUrl = urlService.getFullUrl(shortCode);
-
-        if (longUrl == null) {
-            return ResponseEntity.notFound().build();
-        }
 
         return ResponseEntity.status(HttpStatus.FOUND) // 302 Redirect
                 .location(URI.create(longUrl))

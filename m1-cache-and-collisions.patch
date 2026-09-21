@@ -1,0 +1,228 @@
+diff --git a/src/main/java/com/nicholas/url_shortener/controller/UrlController.java b/src/main/java/com/nicholas/url_shortener/controller/UrlController.java
+index 8f35628..08b889e 100644
+--- a/src/main/java/com/nicholas/url_shortener/controller/UrlController.java
++++ b/src/main/java/com/nicholas/url_shortener/controller/UrlController.java
+@@ -28,12 +28,9 @@ public class UrlController {
+ 
+     @GetMapping("/r/{shortCode}")
+     public ResponseEntity<Void> redirect(@PathVariable String shortCode) {
++        // getFullUrl throws UrlNotFoundException for unknown codes, which GlobalExceptionHandler maps to 404
+         String longUrl = urlService.getFullUrl(shortCode);
+ 
+-        if (longUrl == null) {
+-            return ResponseEntity.notFound().build();
+-        }
+-
+         return ResponseEntity.status(HttpStatus.FOUND) // 302 Redirect
+                 .location(URI.create(longUrl))
+                 .build();
+diff --git a/src/main/java/com/nicholas/url_shortener/service/UrlService.java b/src/main/java/com/nicholas/url_shortener/service/UrlService.java
+index 8c467e1..f6b85ba 100644
+--- a/src/main/java/com/nicholas/url_shortener/service/UrlService.java
++++ b/src/main/java/com/nicholas/url_shortener/service/UrlService.java
+@@ -3,7 +3,7 @@ package com.nicholas.url_shortener.service;
+ import com.nicholas.url_shortener.exception.UrlNotFoundException;
+ import com.nicholas.url_shortener.model.UrlEntity;
+ import com.nicholas.url_shortener.repository.UrlRepository;
+-import org.springframework.cache.annotation.Cacheable;
++import org.springframework.dao.DataIntegrityViolationException;
+ import org.springframework.data.redis.core.RedisTemplate;
+ import org.springframework.stereotype.Service;
+ 
+@@ -12,9 +12,13 @@ import java.util.concurrent.TimeUnit;
+ 
+ @Service
+ public class UrlService {
++    static final int CODE_LENGTH = 7;
++    static final int MAX_ATTEMPTS = 5;
++    private static final long CACHE_TTL_DAYS = 1;
++    private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
++
+     private final UrlRepository repository;
+     private final RedisTemplate<Object, Object> redisTemplate;
+-    private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+     private final SecureRandom random = new SecureRandom();
+ 
+     public UrlService(UrlRepository repository, RedisTemplate<Object, Object> redisTemplate) {
+@@ -22,26 +26,47 @@ public class UrlService {
+         this.redisTemplate = redisTemplate;
+     }
+ 
++    /**
++     * Generates a random short code and persists it. The unique constraint on shortCode is the
++     * source of truth for collisions: on a violation we retry with a new code, up to MAX_ATTEMPTS.
++     */
+     public String shortenURL(String longUrl) {
+-        String code = generateRandomCode();
+-        UrlEntity entity = new UrlEntity(longUrl, code);
+-        repository.save(entity);
+-        redisTemplate.opsForValue().set(code, longUrl, 1, TimeUnit.DAYS);
+-        return code;
+-    }
+-
+-    private String generateRandomCode() {
+-        StringBuilder sb = new StringBuilder(7);
+-        for (int i = 0; i < 7; i++) {
+-            sb.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
++        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
++            String code = generateRandomCode();
++            try {
++                // saveAndFlush forces the INSERT now, so a collision surfaces inside this try block
++                repository.saveAndFlush(new UrlEntity(longUrl, code));
++            } catch (DataIntegrityViolationException e) {
++                continue; // short code already taken, try another
++            }
++            redisTemplate.opsForValue().set(code, longUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
++            return code;
+         }
+-        return sb.toString();
++        throw new IllegalStateException("Could not generate a unique short code after " + MAX_ATTEMPTS + " attempts");
+     }
+ 
+-    @Cacheable(value = "urls", key = "#shortCode")
++    /**
++     * Cache-aside lookup: check Redis first, fall back to Postgres on a miss, then populate the cache.
++     */
+     public String getFullUrl(String shortCode) {
+-        return repository.findByShortCode(shortCode)
++        Object cached = redisTemplate.opsForValue().get(shortCode);
++        if (cached != null) {
++            return cached.toString();
++        }
++
++        String fullUrl = repository.findByShortCode(shortCode)
+                 .map(UrlEntity::getFullUrl)
+                 .orElseThrow(() -> new UrlNotFoundException("Short code '" + shortCode + "' does not exist"));
++
++        redisTemplate.opsForValue().set(shortCode, fullUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
++        return fullUrl;
++    }
++
++    private String generateRandomCode() {
++        StringBuilder sb = new StringBuilder(CODE_LENGTH);
++        for (int i = 0; i < CODE_LENGTH; i++) {
++            sb.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
++        }
++        return sb.toString();
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java b/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java
+index 9d42e1a..bf51af2 100644
+--- a/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java
++++ b/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java
+@@ -1,18 +1,26 @@
+ package com.nicholas.url_shortener.service;
+ 
++import com.nicholas.url_shortener.exception.UrlNotFoundException;
+ import com.nicholas.url_shortener.model.UrlEntity;
+ import com.nicholas.url_shortener.repository.UrlRepository;
++import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.extension.ExtendWith;
+ import org.mockito.InjectMocks;
+ import org.mockito.Mock;
+ import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.dao.DataIntegrityViolationException;
+ import org.springframework.data.redis.core.RedisTemplate;
+ import org.springframework.data.redis.core.ValueOperations;
+ 
++import java.util.Optional;
++import java.util.concurrent.TimeUnit;
++
+ import static org.assertj.core.api.Assertions.assertThat;
+-import static org.mockito.ArgumentMatchers.any;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.ArgumentMatchers.*;
+ import static org.mockito.Mockito.*;
++
+ @ExtendWith(MockitoExtension.class)
+ class UrlServiceTest {
+ 
+@@ -28,14 +36,78 @@ class UrlServiceTest {
+     @InjectMocks
+     private UrlService urlService;
+ 
++    @BeforeEach
++    void setUp() {
++        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
++    }
++
++    // ---------- shortenURL ----------
++
+     @Test
+-    void shortenURL_ShouldReturn7CharacterCode() {
+-        // Mock the Redis behavior so it doesn't null pointer
+-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
++    void shortenURL_returns7CharCode_savesItAndWritesToCache() {
++        String code = urlService.shortenURL("https://google.com");
++
++        assertThat(code).hasSize(UrlService.CODE_LENGTH).matches("[a-zA-Z0-9]+");
++        verify(repository, times(1)).saveAndFlush(any(UrlEntity.class));
++        verify(valueOperations).set(code, "https://google.com", 1L, TimeUnit.DAYS);
++    }
++
++    @Test
++    void shortenURL_retriesWithNewCode_whenShortCodeCollides() {
++        when(repository.saveAndFlush(any(UrlEntity.class)))
++                .thenThrow(new DataIntegrityViolationException("duplicate shortCode"))
++                .thenAnswer(invocation -> invocation.getArgument(0));
+ 
+         String code = urlService.shortenURL("https://google.com");
+ 
+-        assertThat(code).hasSize(7);
+-        verify(repository, times(1)).save(any(UrlEntity.class));
++        assertThat(code).hasSize(UrlService.CODE_LENGTH);
++        verify(repository, times(2)).saveAndFlush(any(UrlEntity.class));
++        verify(valueOperations, times(1)).set(eq(code), eq("https://google.com"), anyLong(), any(TimeUnit.class));
++    }
++
++    @Test
++    void shortenURL_givesUp_afterMaxAttempts() {
++        when(repository.saveAndFlush(any(UrlEntity.class)))
++                .thenThrow(new DataIntegrityViolationException("duplicate shortCode"));
++
++        assertThatThrownBy(() -> urlService.shortenURL("https://google.com"))
++                .isInstanceOf(IllegalStateException.class);
++        verify(repository, times(UrlService.MAX_ATTEMPTS)).saveAndFlush(any(UrlEntity.class));
++        verifyNoInteractions(valueOperations);
++    }
++
++    // ---------- getFullUrl ----------
++
++    @Test
++    void getFullUrl_cacheHit_neverQueriesDatabase() {
++        when(valueOperations.get("abc1234")).thenReturn("https://google.com");
++
++        String url = urlService.getFullUrl("abc1234");
++
++        assertThat(url).isEqualTo("https://google.com");
++        verifyNoInteractions(repository);
++    }
++
++    @Test
++    void getFullUrl_cacheMiss_readsDatabaseAndPopulatesCache() {
++        when(valueOperations.get("abc1234")).thenReturn(null);
++        when(repository.findByShortCode("abc1234"))
++                .thenReturn(Optional.of(new UrlEntity("https://google.com", "abc1234")));
++
++        String url = urlService.getFullUrl("abc1234");
++
++        assertThat(url).isEqualTo("https://google.com");
++        verify(repository, times(1)).findByShortCode("abc1234");
++        verify(valueOperations).set("abc1234", "https://google.com", 1L, TimeUnit.DAYS);
++    }
++
++    @Test
++    void getFullUrl_unknownCode_throwsAndDoesNotCache() {
++        when(valueOperations.get("missing")).thenReturn(null);
++        when(repository.findByShortCode("missing")).thenReturn(Optional.empty());
++
++        assertThatThrownBy(() -> urlService.getFullUrl("missing"))
++                .isInstanceOf(UrlNotFoundException.class);
++        verify(valueOperations, never()).set(any(), any(), anyLong(), any(TimeUnit.class));
+     }
+-}
+\ No newline at end of file
++}
