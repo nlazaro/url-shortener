@@ -1,0 +1,38 @@
+// Load test simulating realistic, skewed traffic: a small set of popular
+// short links getting most of the clicks, instead of uniform random access
+// across the whole table. Run loadtest/seed.sql first, then:
+//   k6 run loadtest/redirect-hotset.js
+import http from 'k6/http';
+import { check } from 'k6';
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const SEED_COUNT = 3000000;  // must match generate_series() upper bound in seed.sql
+const HOT_SET_SIZE = 200;    // number of "popular" codes repeatedly requested
+
+export const options = {
+  vus: 50,
+  duration: '30s',
+  maxRedirects: 0,
+  summaryTrendStats: ['avg', 'p(50)', 'p(95)', 'p(99)', 'max'],
+};
+
+function seedCode(i) {
+  return 'sd' + String(i).padStart(9, '0');
+}
+
+// Runs once before the test: pick a fixed set of "popular" codes from
+// across the seeded range. Every VU shares this same hot set.
+export function setup() {
+  const hotSet = [];
+  for (let i = 0; i < HOT_SET_SIZE; i++) {
+    const idx = Math.floor(Math.random() * SEED_COUNT) + 1;
+    hotSet.push(seedCode(idx));
+  }
+  return { hotSet };
+}
+
+export default function (data) {
+  const code = data.hotSet[Math.floor(Math.random() * data.hotSet.length)];
+  const res = http.get(`${BASE_URL}/r/${code}`);
+  check(res, { 'status is 302': (r) => r.status === 302 });
+}
