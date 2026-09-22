@@ -6,7 +6,6 @@ import com.nicholas.url_shortener.repository.UrlRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -33,11 +32,11 @@ class UrlServiceTest {
     @Mock
     private ValueOperations<Object, Object> valueOperations;
 
-    @InjectMocks
     private UrlService urlService;
 
     @BeforeEach
     void setUp() {
+        urlService = new UrlService(repository, redisTemplate, true);
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     }
 
@@ -109,5 +108,20 @@ class UrlServiceTest {
         assertThatThrownBy(() -> urlService.getFullUrl("missing"))
                 .isInstanceOf(UrlNotFoundException.class);
         verify(valueOperations, never()).set(any(), any(), anyLong(), any(TimeUnit.class));
+    }
+
+    // ---------- cache disabled (used for benchmarking) ----------
+
+    @Test
+    void cacheDisabled_neverTouchesRedis() {
+        UrlService noCache = new UrlService(repository, redisTemplate, false);
+        when(repository.findByShortCode("abc1234"))
+                .thenReturn(Optional.of(new UrlEntity("https://google.com", "abc1234")));
+
+        noCache.shortenURL("https://google.com");
+        String url = noCache.getFullUrl("abc1234");
+
+        assertThat(url).isEqualTo("https://google.com");
+        verifyNoInteractions(valueOperations);
     }
 }

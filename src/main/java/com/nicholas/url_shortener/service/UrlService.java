@@ -3,6 +3,7 @@ package com.nicholas.url_shortener.service;
 import com.nicholas.url_shortener.exception.UrlNotFoundException;
 import com.nicholas.url_shortener.model.UrlEntity;
 import com.nicholas.url_shortener.repository.UrlRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -19,11 +20,15 @@ public class UrlService {
 
     private final UrlRepository repository;
     private final RedisTemplate<Object, Object> redisTemplate;
+    private final boolean cacheEnabled;
     private final SecureRandom random = new SecureRandom();
 
-    public UrlService(UrlRepository repository, RedisTemplate<Object, Object> redisTemplate) {
+    public UrlService(UrlRepository repository,
+                      RedisTemplate<Object, Object> redisTemplate,
+                      @Value("${app.cache.enabled:true}") boolean cacheEnabled) {
         this.repository = repository;
         this.redisTemplate = redisTemplate;
+        this.cacheEnabled = cacheEnabled;
     }
 
     /**
@@ -39,7 +44,7 @@ public class UrlService {
             } catch (DataIntegrityViolationException e) {
                 continue; // short code already taken, try another
             }
-            redisTemplate.opsForValue().set(code, longUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
+            cachePut(code, longUrl);
             return code;
         }
         throw new IllegalStateException("Could not generate a unique short code after " + MAX_ATTEMPTS + " attempts");
@@ -49,17 +54,25 @@ public class UrlService {
      * Cache-aside lookup: check Redis first, fall back to Postgres on a miss, then populate the cache.
      */
     public String getFullUrl(String shortCode) {
-        Object cached = redisTemplate.opsForValue().get(shortCode);
-        if (cached != null) {
-            return cached.toString();
+        if (cacheEnabled) {
+            Object cached = redisTemplate.opsForValue().get(shortCode);
+            if (cached != null) {
+                return cached.toString();
+            }
         }
 
         String fullUrl = repository.findByShortCode(shortCode)
                 .map(UrlEntity::getFullUrl)
                 .orElseThrow(() -> new UrlNotFoundException("Short code '" + shortCode + "' does not exist"));
 
-        redisTemplate.opsForValue().set(shortCode, fullUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
+        cachePut(shortCode, fullUrl);
         return fullUrl;
+    }
+
+    private void cachePut(String shortCode, String fullUrl) {
+        if (cacheEnabled) {
+            redisTemplate.opsForValue().set(shortCode, fullUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
+        }
     }
 
     private String generateRandomCode() {

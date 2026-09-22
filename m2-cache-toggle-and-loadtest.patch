@@ -1,0 +1,186 @@
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 534602f..4161368 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -32,4 +32,5 @@ services:
+       - DB_HOST=postgres
+       - DB_USER=postgres
+       - DB_PASS=password
+-      - REDIS_HOST=redis
+\ No newline at end of file
++      - REDIS_HOST=redis
++      - CACHE_ENABLED=${CACHE_ENABLED:-true}
+\ No newline at end of file
+diff --git a/loadtest/redirect.js b/loadtest/redirect.js
+new file mode 100644
+index 0000000..f64f32a
+--- /dev/null
++++ b/loadtest/redirect.js
+@@ -0,0 +1,37 @@
++// Load test for the redirect endpoint.
++// Run:  k6 run loadtest/redirect.js
++import http from 'k6/http';
++import { check } from 'k6';
++
++const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
++const NUM_CODES = 100;
++
++export const options = {
++  vus: 50,
++  duration: '30s',
++  maxRedirects: 0, // measure OUR redirect, not the destination site
++  summaryTrendStats: ['avg', 'p(50)', 'p(95)', 'p(99)', 'max'],
++};
++
++// Runs once before the test: create a pool of short codes to hit
++export function setup() {
++  const codes = [];
++  for (let i = 0; i < NUM_CODES; i++) {
++    const res = http.post(
++      `${BASE_URL}/shorten`,
++      JSON.stringify({ url: `https://example.com/page/${i}` }),
++      { headers: { 'Content-Type': 'application/json' } },
++    );
++    if (res.status !== 201) {
++      throw new Error(`Setup failed: POST /shorten returned ${res.status}`);
++    }
++    codes.push(res.body);
++  }
++  return { codes };
++}
++
++export default function (data) {
++  const code = data.codes[Math.floor(Math.random() * data.codes.length)];
++  const res = http.get(`${BASE_URL}/r/${code}`);
++  check(res, { 'status is 302': (r) => r.status === 302 });
++}
+diff --git a/src/main/java/com/nicholas/url_shortener/service/UrlService.java b/src/main/java/com/nicholas/url_shortener/service/UrlService.java
+index f6b85ba..bd6bb35 100644
+--- a/src/main/java/com/nicholas/url_shortener/service/UrlService.java
++++ b/src/main/java/com/nicholas/url_shortener/service/UrlService.java
+@@ -3,6 +3,7 @@ package com.nicholas.url_shortener.service;
+ import com.nicholas.url_shortener.exception.UrlNotFoundException;
+ import com.nicholas.url_shortener.model.UrlEntity;
+ import com.nicholas.url_shortener.repository.UrlRepository;
++import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.dao.DataIntegrityViolationException;
+ import org.springframework.data.redis.core.RedisTemplate;
+ import org.springframework.stereotype.Service;
+@@ -19,11 +20,15 @@ public class UrlService {
+ 
+     private final UrlRepository repository;
+     private final RedisTemplate<Object, Object> redisTemplate;
++    private final boolean cacheEnabled;
+     private final SecureRandom random = new SecureRandom();
+ 
+-    public UrlService(UrlRepository repository, RedisTemplate<Object, Object> redisTemplate) {
++    public UrlService(UrlRepository repository,
++                      RedisTemplate<Object, Object> redisTemplate,
++                      @Value("${app.cache.enabled:true}") boolean cacheEnabled) {
+         this.repository = repository;
+         this.redisTemplate = redisTemplate;
++        this.cacheEnabled = cacheEnabled;
+     }
+ 
+     /**
+@@ -39,7 +44,7 @@ public class UrlService {
+             } catch (DataIntegrityViolationException e) {
+                 continue; // short code already taken, try another
+             }
+-            redisTemplate.opsForValue().set(code, longUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
++            cachePut(code, longUrl);
+             return code;
+         }
+         throw new IllegalStateException("Could not generate a unique short code after " + MAX_ATTEMPTS + " attempts");
+@@ -49,19 +54,27 @@ public class UrlService {
+      * Cache-aside lookup: check Redis first, fall back to Postgres on a miss, then populate the cache.
+      */
+     public String getFullUrl(String shortCode) {
+-        Object cached = redisTemplate.opsForValue().get(shortCode);
+-        if (cached != null) {
+-            return cached.toString();
++        if (cacheEnabled) {
++            Object cached = redisTemplate.opsForValue().get(shortCode);
++            if (cached != null) {
++                return cached.toString();
++            }
+         }
+ 
+         String fullUrl = repository.findByShortCode(shortCode)
+                 .map(UrlEntity::getFullUrl)
+                 .orElseThrow(() -> new UrlNotFoundException("Short code '" + shortCode + "' does not exist"));
+ 
+-        redisTemplate.opsForValue().set(shortCode, fullUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
++        cachePut(shortCode, fullUrl);
+         return fullUrl;
+     }
+ 
++    private void cachePut(String shortCode, String fullUrl) {
++        if (cacheEnabled) {
++            redisTemplate.opsForValue().set(shortCode, fullUrl, CACHE_TTL_DAYS, TimeUnit.DAYS);
++        }
++    }
++
+     private String generateRandomCode() {
+         StringBuilder sb = new StringBuilder(CODE_LENGTH);
+         for (int i = 0; i < CODE_LENGTH; i++) {
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+index 308142f..c983fc3 100644
+--- a/src/main/resources/application.properties
++++ b/src/main/resources/application.properties
+@@ -14,4 +14,6 @@ spring.jpa.hibernate.ddl-auto=update
+ # Disable H2 Console (we don't need it for Postgres)
+ spring.h2.console.enabled=false
+ # Give the DB time to wake up (Retry for 30 seconds)
+-spring.datasource.hikari.initialization-fail-timeout=30000
+\ No newline at end of file
++spring.datasource.hikari.initialization-fail-timeout=30000
++# Toggle the Redis cache-aside layer (set CACHE_ENABLED=false to benchmark without it)
++app.cache.enabled=${CACHE_ENABLED:true}
+diff --git a/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java b/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java
+index bf51af2..1942781 100644
+--- a/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java
++++ b/src/test/java/com/nicholas/url_shortener/service/UrlServiceTest.java
+@@ -6,7 +6,6 @@ import com.nicholas.url_shortener.repository.UrlRepository;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.extension.ExtendWith;
+-import org.mockito.InjectMocks;
+ import org.mockito.Mock;
+ import org.mockito.junit.jupiter.MockitoExtension;
+ import org.springframework.dao.DataIntegrityViolationException;
+@@ -33,11 +32,11 @@ class UrlServiceTest {
+     @Mock
+     private ValueOperations<Object, Object> valueOperations;
+ 
+-    @InjectMocks
+     private UrlService urlService;
+ 
+     @BeforeEach
+     void setUp() {
++        urlService = new UrlService(repository, redisTemplate, true);
+         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+     }
+ 
+@@ -110,4 +109,19 @@ class UrlServiceTest {
+                 .isInstanceOf(UrlNotFoundException.class);
+         verify(valueOperations, never()).set(any(), any(), anyLong(), any(TimeUnit.class));
+     }
++
++    // ---------- cache disabled (used for benchmarking) ----------
++
++    @Test
++    void cacheDisabled_neverTouchesRedis() {
++        UrlService noCache = new UrlService(repository, redisTemplate, false);
++        when(repository.findByShortCode("abc1234"))
++                .thenReturn(Optional.of(new UrlEntity("https://google.com", "abc1234")));
++
++        noCache.shortenURL("https://google.com");
++        String url = noCache.getFullUrl("abc1234");
++
++        assertThat(url).isEqualTo("https://google.com");
++        verifyNoInteractions(valueOperations);
++    }
+ }
+# Toggle the Redis cache-aside layer (set CACHE_ENABLED=false to benchmark without it)
+app.cache.enabled=${CACHE_ENABLED:true}
